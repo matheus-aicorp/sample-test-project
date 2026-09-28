@@ -1,0 +1,345 @@
+openapi: 3.1.0
+
+info:
+  title: Brazilian Capitals Weather API
+  version: 1.0.0
+  summary: Live temperature for the 27 Brazilian state capitals.
+  description: |
+    A single-endpoint HTTP API that returns the current temperature and weather
+    condition for every Brazilian state capital, sourced live from
+    [Open-Meteo](https://open-meteo.com/).
+
+    There is no cache: every request performs one live upstream call.
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: weather
+    description: Live weather readings
+  - name: operational
+    description: Liveness and routing
+
+paths:
+  /v1/capitals/weather:
+    get:
+      tags: [weather]
+      operationId: getCapitalsWeather
+      summary: Current weather for the Brazilian capitals
+      description: |
+        Returns one reading per capital, alphabetically by capital name when no
+        filter is given, or in the order requested when a filter is supplied.
+
+        The `capital` filter accepts a comma-separated list in a single
+        parameter (`?capital=sao-paulo,curitiba`) and also repeated parameters
+        (`?capital=sao-paulo&capital=curitiba`). Slugs are case-insensitive,
+        and spaces or underscores are treated as hyphens.
+      parameters:
+        - name: capital
+          in: query
+          required: false
+          description: Restrict the response to these capitals. Omit for all 27.
+          style: form
+          explode: false
+          schema:
+            type: array
+            maxItems: 50
+            items:
+              type: string
+              enum:
+                - aracaju
+                - belem
+                - belo-horizonte
+                - boa-vista
+                - brasilia
+                - campo-grande
+                - cuiaba
+                - curitiba
+                - florianopolis
+                - fortaleza
+                - goiania
+                - joao-pessoa
+                - macapa
+                - maceio
+                - manaus
+                - natal
+                - palmas
+                - porto-alegre
+                - porto-velho
+                - recife
+                - rio-branco
+                - rio-de-janeiro
+                - salvador
+                - sao-luis
+                - sao-paulo
+                - teresina
+                - vitoria
+          example: sao-paulo,curitiba
+      responses:
+        '200':
+          description: Readings for the requested capitals.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WeatherResponse'
+              examples:
+                filtered:
+                  summary: Two capitals
+                  value:
+                    count: 2
+                    retrieved_at: '2026-09-27T23:30:05.123065586Z'
+                    source:
+                      name: Open-Meteo
+                      url: https://open-meteo.com/
+                    capitals:
+                      - slug: sao-paulo
+                        name: São Paulo
+                        state_code: SP
+                        latitude: -23.5505
+                        longitude: -46.6333
+                        temperature_c: 19.2
+                        feels_like_c: 20.1
+                        humidity_percent: 86
+                        wind_speed_kmh: 9.7
+                        condition: Overcast
+                        condition_code: 3
+                        observed_at: '2026-09-27T20:30:00-03:00'
+                      - slug: curitiba
+                        name: Curitiba
+                        state_code: PR
+                        latitude: -25.4284
+                        longitude: -49.2733
+                        temperature_c: 15.7
+                        feels_like_c: 15.1
+                        humidity_percent: 90
+                        wind_speed_kmh: 8.1
+                        condition: Overcast
+                        condition_code: 3
+                        observed_at: '2026-09-27T20:30:00-03:00'
+        '400':
+          description: An unknown capital slug was requested, or the filter was too large.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unknownCapital:
+                  summary: Unknown slug
+                  value:
+                    error:
+                      code: unknown_capital
+                      message: 'capital not found: campinas'
+                      details:
+                        invalid_slugs: [campinas]
+                        valid_slugs: [aracaju, belem, belo-horizonte]
+                oversized:
+                  summary: Too many slugs
+                  value:
+                    error:
+                      code: invalid_request
+                      message: 'at most 50 capitals per request, got 51'
+        '405':
+          description: The route exists but does not accept this HTTP method.
+          headers:
+            Allow:
+              description: Methods accepted by this route.
+              schema:
+                type: string
+                example: GET, HEAD
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: method_not_allowed
+                  message: method not allowed on this route
+        '502':
+          description: The upstream weather source returned an error or an unusable payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: upstream_failure
+                  message: could not fetch live weather data
+        '504':
+          description: The upstream weather source did not answer within the request timeout.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: upstream_timeout
+                  message: the weather source did not answer in time
+        '500':
+          description: Unexpected internal error. The cause is logged, never disclosed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: internal_error
+                  message: unexpected internal error
+
+  /healthz:
+    get:
+      tags: [operational]
+      operationId: getHealth
+      summary: Liveness probe
+      description: Touches no dependency, so a healthy answer means only that the process is up.
+      responses:
+        '200':
+          description: The process is alive.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+components:
+  schemas:
+    WeatherResponse:
+      type: object
+      required: [count, retrieved_at, source, capitals]
+      properties:
+        count:
+          type: integer
+          minimum: 0
+          description: Number of readings in `capitals`.
+        retrieved_at:
+          type: string
+          format: date-time
+          description: When this API produced the response, in UTC.
+        source:
+          $ref: '#/components/schemas/Source'
+        capitals:
+          type: array
+          description: Always present; empty requests serialise as `[]`, never `null`.
+          items:
+            $ref: '#/components/schemas/CapitalWeather'
+
+    CapitalWeather:
+      type: object
+      required:
+        - slug
+        - name
+        - state_code
+        - latitude
+        - longitude
+        - temperature_c
+        - condition
+        - condition_code
+        - observed_at
+      properties:
+        slug:
+          type: string
+          description: Canonical identifier, stable across releases.
+          example: sao-paulo
+        name:
+          type: string
+          description: Capital name in Portuguese.
+          example: São Paulo
+        state_code:
+          type: string
+          minLength: 2
+          maxLength: 2
+          description: Brazilian federative unit abbreviation.
+          example: SP
+        latitude:
+          type: number
+          format: double
+          example: -23.5505
+        longitude:
+          type: number
+          format: double
+          example: -46.6333
+        temperature_c:
+          type: number
+          format: double
+          description: Air temperature at 2m, in degrees Celsius.
+          example: 19.2
+        feels_like_c:
+          type: number
+          format: double
+          description: Apparent temperature, in degrees Celsius.
+          example: 20.1
+        humidity_percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          example: 86
+        wind_speed_kmh:
+          type: number
+          format: double
+          description: Wind speed at 10m, in km/h.
+          example: 9.7
+        condition:
+          type: string
+          description: Human-readable WMO condition. Falls back to `Uncatalogued condition`.
+          example: Overcast
+        condition_code:
+          type: integer
+          description: Raw WMO 4677 code. `-1` when the upstream omitted it.
+          example: 3
+        observed_at:
+          type: string
+          format: date-time
+          description: |
+            Instant the upstream observation refers to, rendered with the
+            upstream's own UTC offset. Open-Meteo refreshes every 15 minutes.
+          example: '2026-09-27T20:30:00-03:00'
+
+    Source:
+      type: object
+      required: [name, url]
+      description: Attribution for the upstream provider, as its terms require.
+      properties:
+        name:
+          type: string
+          example: Open-Meteo
+        url:
+          type: string
+          format: uri
+          example: https://open-meteo.com/
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetail'
+
+    ErrorDetail:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Stable machine-readable error code.
+          enum:
+            - unknown_capital
+            - invalid_request
+            - upstream_failure
+            - upstream_timeout
+            - request_canceled
+            - not_found
+            - method_not_allowed
+            - internal_error
+        message:
+          type: string
+          description: Human-readable description. Never leaks internal details.
+        details:
+          type: object
+          description: Optional structured context, such as the invalid and valid slugs.
+          additionalProperties: true
