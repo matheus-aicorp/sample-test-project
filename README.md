@@ -37,10 +37,14 @@ make run                      # listens on :8080
 curl -s localhost:8080/v1/capitals/weather | jq
 ```
 
-Or build a binary:
+Or compile a binary. Build and coverage artifacts are written **outside** the
+repository — to `$TMPDIR/sample-test-project/` — so no target ever adds files to
+the working tree:
 
 ```bash
-make build && ./bin/api
+make build       # -> $TMPDIR/sample-test-project/api
+make cover       # -> $TMPDIR/sample-test-project/coverage.out
+make clean       # remove them
 ```
 
 Filter to specific capitals:
