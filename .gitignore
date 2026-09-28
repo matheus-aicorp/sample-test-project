@@ -1,0 +1,16 @@
+# Build artifacts
+/bin/
+
+# Test and coverage artifacts
+coverage.out
+coverage.html
+coverage.filtered.out
+*.test
+
+# Go workspace overrides
+go.work
+go.work.sum
+
+# Editor
+.idea/workspace.xml
+.idea/shelf/
